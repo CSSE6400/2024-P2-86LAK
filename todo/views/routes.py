@@ -1,9 +1,10 @@
+import json
 from flask import Blueprint, jsonify, request
 from todo.models import db
 from todo.models.todo import Todo
-from datetime import datetime
+from datetime import datetime, timedelta
 
-
+allowedFields = ['title', 'description', 'completed', 'deadline_at']
 api = Blueprint('api', __name__, url_prefix='/api/v1') 
 
 TEST_ITEM = {
@@ -24,11 +25,27 @@ def health():
 
 @api.route('/todos', methods=['GET'])
 def get_todos():
-    todos = Todo.query.all()
+    """Return the list of todo items"""
+    completed = request.args.get('completed')
+    window = request.args.get('window')
+
+    todos_query = Todo.query
+    todos = todos_query.all()
+
+    if completed is not None:
+        completed = json.loads(completed)
+        todos = todos_query.filter_by(completed=completed)
+
+    if window is not None:
+        window = json.loads(window)
+        window_date = datetime.now() + timedelta(days=window)
+        todos = todos_query.filter(Todo.deadline_at < window_date)
+
     result = []
     for todo in todos:
         result.append(todo.to_dict())
     return jsonify(result)
+
 
 @api.route('/todos/<int:todo_id>', methods=['GET'])
 def get_todo(todo_id):
@@ -40,24 +57,33 @@ def get_todo(todo_id):
 
 @api.route('/todos', methods=['POST'])
 def create_todo():
-  todo = Todo(
-     title=request.json.get('title'),
-      description=request.json.get('description'),
-      completed=request.json.get('completed', False),
-      )
-  if 'deadline_at' in request.json:
-      todo.deadline_at = datetime.fromisoformat(request.json.get('deadline_at'))
-  # Adds a new record to the database or will update an existing record
-  db.session.add(todo)
-  # Commits the changes to the database, this must be called for the changes to be saved
-  db.session.commit()
-  return jsonify(todo.to_dict()), 201
+    unknown_fields = [field for field in request.json if field not in allowedFields]
+    if unknown_fields:
+        return jsonify({'error': f'Unknown field(s): {", ".join(unknown_fields)}'}), 400
+
+    todo = Todo(
+        title=request.json.get('title'),
+        description=request.json.get('description'),
+        completed=request.json.get('completed', False),
+    )
+    if 'deadline_at' in request.json:
+        todo.deadline_at = datetime.fromisoformat(request.json.get('deadline_at'))
+
+    db.session.add(todo)
+    db.session.commit()
+
+    return jsonify(todo.to_dict()), 201
+
 
 @api.route('/todos/<int:todo_id>', methods=['PUT'])
 def update_todo(todo_id):
     todo = Todo.query.get(todo_id)
     if todo is None:
         return jsonify({'error': 'Todo not found'}), 404
+
+    for field in request.json:
+        if field not in allowedFields:
+            return jsonify({'error': f'Unknown field: {field}'}), 400
 
     todo.title = request.json.get('title', todo.title)
     todo.description = request.json.get('description', todo.description)
@@ -66,6 +92,7 @@ def update_todo(todo_id):
     db.session.commit()
 
     return jsonify(todo.to_dict())
+
 
 @api.route('/todos/<int:todo_id>', methods=['DELETE'])
 def delete_todo(todo_id):
