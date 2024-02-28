@@ -60,7 +60,7 @@ def create_todo():
     unknown_fields = [field for field in request.json if field not in allowedFields]
     if unknown_fields:
         return jsonify({'error': f'Unknown field(s): {", ".join(unknown_fields)}'}), 400
-
+    
     todo = Todo(
         title=request.json.get('title'),
         description=request.json.get('description'),
@@ -68,7 +68,9 @@ def create_todo():
     )
     if 'deadline_at' in request.json:
         todo.deadline_at = datetime.fromisoformat(request.json.get('deadline_at'))
-
+    
+    if todo.title is None:
+        return jsonify({'error': 'Title is required'}), 400
     db.session.add(todo)
     db.session.commit()
 
